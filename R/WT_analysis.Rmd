@@ -1,0 +1,74 @@
+---
+title: "Wildtype Analysis"
+author: "Lachlan Baer"
+date: "09/08/2019"
+output: 
+  html_document:
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# R Setup
+
+```{r}
+library(tidyverse)
+library(magrittr)
+```
+
+```{r}
+setwd("~/Documents/Bioinformatics/Projects/2019_Lardelli_AllWT_6month_RNASeq/R")
+```
+
+## Load Data
+
+```{r}
+counts <- read_tsv("../2_alignedData/featureCounts/genes.out")
+```
+
+## Meta data
+
+```{r}
+oldName <- colnames(counts) %>%
+  basename() %>%
+  str_remove("Aligned.sortedByCoord.out.bam") %>%
+  str_remove(".fq.gz") %>%
+  .[2:26]
+newName <- c("2017K97Gfs_Wt3", "2019SORL1_Wt4", "20170906_Wt2", "20181113_Wt4",
+              "2017K97Gfs_Wt1", "20170906_Wt4", "2019SORL1_Wt6", "2017PSEN2_Wt3",
+              "20181113_Wt3", "2017Q96_Wt3", "2017PSEN2_Wt2", "20181113_Wt5",
+              "2017Q96_Wt2", "20170906_Wt1", "20181113_Wt1", "2017K97Gfs_Wt2",
+              "2019SORL1_Wt3", "2019SORL1_Wt5", "2017PSEN2_Wt1", "2019SORL1_Wt1",
+              "2019SORL1_Wt2", "2017PSEN2_Wt4", "20170906_Wt3", "20181113_Wt2",
+              "2017Q96_Wt1")
+sex <- c("", "", "", "",
+         "F", "F", "F",
+         "F", "F", "F", "F",
+         "F", "F", "F",
+         "", "", "", "", "",
+         "F", "F", "M", "M", "M", "F")
+platform <- c("", "", "", "",
+              "", "", "",
+              "", "", "", "",
+              "", "", "",
+              "", "", "", "", "",
+              "", "", "", "", "", "")
+family <- c("", "", "", "",
+            "", "", "",
+            "", "", "", "",
+            "", "", "",
+            "", "", "", "", "",
+            "", "", "", "", "", "")
+```
+
+```{r}
+metaData <- data.frame(newName, oldName) %>%
+  dplyr::arrange(newName) %>%
+  mutate(sex = sex, platform = platform, family = family) %>%
+  column_to_rownames("newName")
+```
+
