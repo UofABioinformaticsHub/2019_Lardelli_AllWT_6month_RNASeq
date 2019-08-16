@@ -18,26 +18,46 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```{r}
 library(tidyverse)
 library(magrittr)
+library(edgeR)
 ```
 
 ```{r}
 setwd("~/Documents/Bioinformatics/Projects/2019_Lardelli_AllWT_6month_RNASeq/R")
 ```
 
-## Load Data
+## Metadata
 
 ```{r}
-counts <- read_tsv("../2_alignedData/featureCounts/genes.out")
-```
-
-## Meta data
-
-```{r}
-oldName <- colnames(counts) %>%
-  basename() %>%
-  str_remove("Aligned.sortedByCoord.out.bam") %>%
-  str_remove(".fq.gz") %>%
-  .[2:26]
+oldName <- c("6_non_mutant_K97Gfs_6mth_10_03_2016_S3_fem",
+             "8_19W_1",
+             "2-MORGAN-6P-PN2_S5_R1_001",
+             "14__-_2",
+             "4_non_mutant_K97Gfs_6mth_10_03_2016_S1_fem",
+             "4-MORGAN-6P-PN4_S8_R1_001",
+             "12_9W_1",
+             "11_Ps2Ex3M1_WT_6month_07_07_2016_F3_88_Fem",
+             "13__-_3",
+             "3_non_mutant_Q96_K97del_6mth_10_03_2016_S3_fem",
+             "10_Ps2Ex3M1_WT_6month_07_07_2016_F3_86_Fem",
+             "15__-_1",
+             "2_non_mutant_Q96_K97del_6mth_10_03_2016_S2_fem",
+             "1-MORGAN-6P-PN1_S2_R1_001",
+             "11__-_5",
+             "5_non_mutant_K97Gfs_6mth_10_03_2016_S2_fem",
+             "6_16W_1",
+             "9_1W_1",
+             "9_Ps2Ex3M1_WT_6month_07_07_2016_F3_79_Fem",
+             "3_13W_1",
+             "4_14W_1",
+             "12_Ps2Ex3M1_WT_6month_07_07_2016_F3_95_Fem",
+             "3-MORGAN-6P-PN3_S10_R1_001",
+             "12__-_4",
+             "1_non_mutant_Q96_K97del_6mth_10_03_2016_S1_fem",
+             "W1",
+             "W2",
+             "W3",
+             "W4",
+             "W5")
 newName <- c("2017K97Gfs_Wt3", "2019SORL1_Wt4", "20170906_Wt2", 
              "20181113_Wt4", "2017K97Gfs_Wt1", "20170906_Wt4", 
              "2019SORL1_Wt6", "2017PSEN2_Wt3", "20181113_Wt3", 
@@ -46,31 +66,73 @@ newName <- c("2017K97Gfs_Wt3", "2019SORL1_Wt4", "20170906_Wt2",
              "2017K97Gfs_Wt2", "2019SORL1_Wt3", "2019SORL1_Wt5", 
              "2017PSEN2_Wt1", "2019SORL1_Wt1", "2019SORL1_Wt2", 
              "2017PSEN2_Wt4", "20170906_Wt3", "20181113_Wt2",
-             "2017Q96_Wt1")
+             "2017Q96_Wt1", "20190122Q96_Wt1", "20190122Q96_Wt2",
+             "20190122Q96_Wt3", "20190122Q96_Wt4", "20190122Q96_Wt5")
 sex <- c("M", "F", "F", "F",
          "F", "F", "F",
          "F", "F", "F", "F",
          "F", "F", "F",
-         "M", "M", "M", "M", "M",
+         "F", "F", "F", "M", "M",
+         "F", "F", "F", "F", "F",
          "F", "F", "M", "M", "M", "F")
-platform <- c("", "", "", "",
-              "", "", "",
-              "", "", "", "",
-              "", "", "",
-              "", "", "", "", "",
-              "", "", "", "", "", "")
-family <- c("Q96K97del", "Q96K97del", "Q96K97del", "Q96K97del",
+platform <- c("Nextseq", "Nextseq", "Nextseq", "Nextseq",
+              "Hiseq?", "Hiseq?", "Hiseq?",
+              "Hiseq?", "Hiseq?", "Hiseq?", "Hiseq?",
+              "Hiseq?", "Hiseq?", "Hiseq?",
+              "Nextseq", "Nextseq", "Nextseq", "Nextseq", "Nextseq",
+              "Novaseq", "Novaseq", "Novaseq", "Novaseq", "Novaseq",
+              "Novaseq", "Novaseq", "Novaseq", "Novaseq", "Novaseq", "Novaseq")
+provider <- c("SAHMRI", "SAHMRI", "SAHMRI", "SAHMRI",
+              "ACRF", "ACRF", "ACRF",
+              "ACRF", "ACRF", "ACRF", "ACRF",
+              "ACRF", "ACRF", "ACRF",
+              "SAHMRI", "SAHMRI", "SAHMRI", "SAHMRI", "SAHMRI",
+              "Novogene", "Novogene", "Novogene", "Novogene", "Novogene",
+              "Novogene", "Novogene", "Novogene", 
+              "Novogene", "Novogene", "Novogene")
+family <- c("Q96K97del_1", "Q96K97del_1", "Q96K97del_1", "Q96K97del_1",
             "K97Gfs", "K97Gfs", "K97Gfs",
-            "PSEN2?", "PSEN2?", "PSEN2?", "PSEN2?",
-            "Q96K97del", "Q96K97del", "Q96K97del",
-            "", "", "", "", "",
+            "PSEN2S4Ter", "PSEN2S4Ter", "PSEN2S4Ter", "PSEN2S4Ter",
+            "Q96K97del_2", "Q96K97del_2", "Q96K97del_2",
+            "PSEN2_FSvsFAD", "PSEN2_FSvsFAD", "PSEN2_FSvsFAD", 
+            "PSEN2_FSvsFAD", "PSEN2_FSvsFAD",
+            "Q96K97del_3", "Q96K97del_3", "Q96K97del_3", 
+            "Q96K97del_3", "Q96K97del_3",
             "SORL1", "SORL1", "SORL1", "SORL1", "SORL1", "SORL1")
 ```
 
 ```{r}
 metaData <- data.frame(newName, oldName) %>%
   dplyr::arrange(newName) %>%
-  mutate(sex = sex, platform = platform, family = family) %>%
-  column_to_rownames("newName")
+  mutate(
+    sex = sex, family = family, platform = platform, provider = provider
+  )
 ```
 
+## Load Data
+
+```{r}
+counts1 <- read_tsv("../2_alignedData/featureCounts/genes.out") %>%
+  set_colnames(basename(colnames(.))) %>%
+  set_colnames(str_remove(colnames(.),"Aligned.sortedByCoord.out.bam")) %>%
+  set_colnames(str_remove(colnames(.),".fq.gz"))
+counts2 <- read_tsv("../../20190122_Q96K97_NoStress_RNASeq/2_alignedData/featureCounts/genes_ss.out") %>%
+  set_colnames(basename(colnames(.))) %>%
+  set_colnames(str_remove(colnames(.), "_ssAligned.sortedByCoord.out.bam")) %>%
+  dplyr::select(Geneid, starts_with("W"))
+counts <- counts1 %>%
+  full_join(counts2) %>% 
+  column_to_rownames("Geneid") %>%
+  set_colnames(metaData$newName[match(colnames(.), metaData$oldName)]) %>%
+  rownames_to_column("Geneid")
+## CHECK THIS WITH STEVE!
+```
+
+## Create DGE List
+```{r}
+dgeList <- counts %>%
+  as.data.frame() %>%
+  column_to_rownames("Geneid") %>%
+  DGEList() %>%
+  calcNormFactors()
+```
