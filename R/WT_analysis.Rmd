@@ -25,7 +25,7 @@ library(scales)
 library(pander)
 library(ggrepel)
 library(grid)
-library(genefilter)
+library(EDASeq)
 ```
 
 ```{r options}
@@ -450,9 +450,7 @@ topTablePC1 %>%
 # Outliers were also removed to make boxplots look nicer (only 7 genes)
 deDown <- topTablePC1 %>% 
   dplyr::filter(adj.P.Val < 0.05, logFC < 0) %>%
-  left_join(geneLen) %>%
-  dplyr::filter(tx_len < 25000) %>%
-  dplyr::select(gene_id, gene_name, tx_len) %>%
+  dplyr::select(gene_id, gene_name) %>%
   dplyr::mutate(group = "down")
 ```
 
@@ -460,8 +458,7 @@ deDown <- topTablePC1 %>%
 # Grab DE up genes and join lengths
 deUp <- topTablePC1 %>% 
   dplyr::filter(adj.P.Val < 0.05, logFC > 0) %>%
-  left_join(geneLen) %>%
-  dplyr::select(gene_id, gene_name, tx_len) %>%
+  dplyr::select(gene_id, gene_name) %>%
   dplyr::mutate(group = "up")
 ```
 
@@ -469,8 +466,7 @@ deUp <- topTablePC1 %>%
 # Grab non DE genes and join lengths
 deNon <- topTablePC1 %>% 
   dplyr::filter(adj.P.Val > 0.05) %>%
-  left_join(geneLen) %>%
-  dplyr::select(gene_id, gene_name, tx_len) %>%
+  dplyr::select(gene_id, gene_name) %>%
   dplyr::mutate(group = "non")
 ```
 
@@ -479,12 +475,44 @@ deNon <- topTablePC1 %>%
 deDown %>%
   full_join(deUp) %>%
   full_join(deNon) %>%
+  left_join(geneLen) %>%
   ggplot(aes(group, tx_len, fill = group)) +
   geom_boxplot(outlier.shape = NA) +
   scale_y_continuous(labels = comma) +
   labs(x = "DE", y = "Gene Length") +
   coord_cartesian(ylim = c(0, 10000)) +
   theme(legend.position = "none") 
+```
+
+# **GC content**
+
+## Setup
+
+```{r}
+# # This is extremely slow, takes approximately 30 minutes.
+# # Saved as .rds file to save time
+# id <- rownames(dgeFilt)
+# gcContent <- getGeneLengthAndGCContent(id, org = "dre", mode = "biomart")
+# saveRDS(gcContent, "../files/gcContent.rds")
+```
+
+```{r}
+gcPerGene <- readRDS("../files/gcContent.rds") %>%
+  as.data.frame() %>%
+  rownames_to_column("gene_id")
+```
+
+## GC comparison
+
+```{r}
+deDown %>%
+  full_join(deUp) %>%
+  full_join(deNon) %>% 
+  left_join(gcPerGene) %>%
+  ggplot(aes(group, gc, fill = group)) +
+  geom_boxplot() +
+  labs(x = "DE", y = "GC Content") +
+  theme(legend.position = "none")
 ```
 
 # **Gene level variance**
