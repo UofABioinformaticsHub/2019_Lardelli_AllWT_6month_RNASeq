@@ -29,6 +29,8 @@ library(EDASeq)
 library(multcomp)
 library(org.Dr.eg.db)
 library(org.Hs.eg.db)
+library(RUVSeq)
+library(gganimate)
 ```
 
 ```{r options}
@@ -321,9 +323,9 @@ ggPCA <- function(x, y){
         x, y, colour = "group", shape = "provider", label = "sex"
       )
     ) +
-    geom_point(size = 3, stroke = 0.5) +
-    geom_text_repel(show.legend = FALSE) +
-    # labs(colour = "Family", shape = "Provider") +
+    geom_point(size = 3, alpha = 0.8) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider") +
     xlab(label = paste0(x, " (", percent(summary(pca)$importance[2, x]), ")")) +
     ylab(label = paste0(y, " (", percent(summary(pca)$importance[2, y]), ")")) +
     theme_bw()
@@ -517,7 +519,7 @@ deDown %>%
 ```{r}
 topTablePC1 %>%
   left_join(geneGCLen) %>%
-  mutate(logFC = logFC^(1/3))
+  mutate(logFC = logFC^(1/3)) %>%
   ggplot(aes(length, logFC, colour = gc)) +
   geom_point(alpha = 0.5) +
   scale_color_gradient2(low = "black", mid = "red", high = "yellow") +
@@ -590,13 +592,13 @@ var1 %>%
   full_join(var7) %>%
   ggplot(aes(group, value, fill = group)) +
   geom_boxplot(outlier.shape = NA) +
-  labs(x = "Family", y = "Gene level variance", fill = "Provider") +
+  labs(x = "Family", y = "Gene level variance of counts", fill = "Provider") +
   scale_fill_discrete(
     labels = c(
       "ACRF", "ACRF", "ACRF", "SAHMRI", "SAHMRI", "Novogene", "Novogene"
     )
   ) +
-  coord_cartesian(ylim = c(0, 75))
+  coord_cartesian(ylim = c(0, 85))
 ```
 
 # **GO analysis**
@@ -604,132 +606,83 @@ var1 %>%
 ## ID conversion
 
 ```{r}
-# Some packages are required to be unloaded before biomaRt can be loaded
-detach("package:EDASeq", unload = TRUE)
-detach("package:ensembldb", unload = TRUE)
-detach("package:GenomicFeatures", unload = TRUE)
-library(biomaRt)
+# # Some packages are required to be unloaded before biomaRt can be loaded
+# detach("package:EDASeq", unload = TRUE)
+# detach("package:ensembldb", unload = TRUE)
+# detach("package:GenomicFeatures", unload = TRUE)
+# library(biomaRt)
 ```
 
 ```{r}
-# Human entrez and ensembl IDs
-humanEntrezEns <- org.Hs.egENSEMBL %>%
-  as.data.frame %>%
-  set_colnames(c("Hs_entrez", "Hs_ensembl"))
+# # Human entrez and ensembl IDs
+# humanEntrezEns <- org.Hs.egENSEMBL %>%
+#   as.data.frame %>%
+#   set_colnames(c("Hs_entrez", "Hs_ensembl"))
 ```
 
 ```{r}
-# Zebrafish ensembl IDs
-zebEns <- org.Dr.egENSEMBL %>%
-  as.data.frame %>%
-  set_colnames(c("Dr_entrez", "Dr_ensembl"))
+# # Zebrafish ensembl IDs
+# zebEns <- org.Dr.egENSEMBL %>%
+#   as.data.frame %>%
+#   set_colnames(c("Dr_entrez", "Dr_ensembl"))
 ```
 
 ```{r}
-# Create a data.frame to map between human entrezgenes and zebrafish ensembl IDs.
-# BioMart only includes homolog mappings for ensembl IDs which is why we need to 
-# retrieve human ensembl IDs, then join to the humanEntrezEns data.frame,
-# in order to get the desired human entrezgenes to zebrafish ensembl ID mapping. 
-zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
-getFromBiomart <- c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene")
-ens2entrez <- getBM(
-  getFromBiomart,
-  values = unique(zebEns$Dr_ensembl),
-  mart = zebMart
-) %>%
-  set_colnames(c("Dr_ensembl", "Hs_ensembl")) %>%
-  left_join(humanEntrezEns, by = "Hs_ensembl") %>%
-  dplyr::select(-Hs_ensembl) %>% 
-  dplyr::filter(complete.cases(.)) %>%
-  as_tibble()
+# # Create a data.frame to map between human entrezgenes and zebrafish ensembl IDs.
+# # BioMart only includes homolog mappings for ensembl IDs which is why we need to 
+# # retrieve human ensembl IDs, then join to the humanEntrezEns data.frame,
+# # in order to get the desired human entrezgenes to zebrafish ensembl ID mapping. 
+# zebMart <- useMart("ENSEMBL_MART_ENSEMBL", "drerio_gene_ensembl")
+# getFromBiomart <- c("ensembl_gene_id", "hsapiens_homolog_ensembl_gene")
+# ens2entrez <- getBM(
+#   getFromBiomart,
+#   values = unique(zebEns$Dr_ensembl),
+#   mart = zebMart
+# ) %>%
+#   set_colnames(c("Dr_ensembl", "Hs_ensembl")) %>%
+#   left_join(humanEntrezEns, by = "Hs_ensembl") %>%
+#   dplyr::select(-Hs_ensembl) %>% 
+#   dplyr::filter(complete.cases(.)) %>%
+#   as_tibble()
 ```
 
 ## GO enrichment
 
 ```{r}
-de <- topTablePC1 %>%
-  dplyr::filter(adj.P.Val < 0.05) %>%
-  dplyr::select(gene_id) %>%
-  left_join(ens2entrez, by = c("gene_id" = "Dr_ensembl")) %>%
-  dplyr::filter(!is.na(Hs_entrez)) %>%
-  .[["Hs_entrez"]] %>%
-  unique()
-uv <- topTablePC1 %>%
-  dplyr::select(gene_id) %>%
-  left_join(ens2entrez, by = c("gene_id" = "Dr_ensembl")) %>%
-  dplyr::filter(!is.na(Hs_entrez)) %>%
-  .[["Hs_entrez"]] %>%
-  unique()
+# de <- topTablePC1 %>%
+#   dplyr::filter(adj.P.Val < 0.05) %>%
+#   dplyr::select(gene_id) %>%
+#   left_join(ens2entrez, by = c("gene_id" = "Dr_ensembl")) %>%
+#   dplyr::filter(!is.na(Hs_entrez)) %>%
+#   .[["Hs_entrez"]] %>%
+#   unique()
+# uv <- topTablePC1 %>%
+#   dplyr::select(gene_id) %>%
+#   left_join(ens2entrez, by = c("gene_id" = "Dr_ensembl")) %>%
+#   dplyr::filter(!is.na(Hs_entrez)) %>%
+#   .[["Hs_entrez"]] %>%
+#   unique()
 ```
 
 ```{r}
-goResults <- goana(de = de, universe = uv, species = "Hs")
+# goResults <- goana(de = de, universe = uv, species = "Hs")
 ```
 
 ```{r}
-goResults %>% 
-  rownames_to_column("GO ID") %>%
-  as_tibble() %>%
-  dplyr::filter(DE > 1) %>%
-  dplyr::arrange(P.DE) %>%
-  mutate(FDR = p.adjust(P.DE, "fdr")) %>%
-  dplyr::filter(FDR < 0.05) %>%
-  mutate(`GO ID` = str_replace(`GO ID`, ":", "\\\\:")) %>%
-  pander(justify = "llrrrrr")
+# goResults %>% 
+#   rownames_to_column("GO ID") %>%
+#   as_tibble() %>%
+#   dplyr::filter(DE > 1) %>%
+#   dplyr::arrange(P.DE) %>%
+#   mutate(FDR = p.adjust(P.DE, "fdr")) %>%
+#   dplyr::filter(FDR < 0.05) %>%
+#   mutate(`GO ID` = str_replace(`GO ID`, ":", "\\\\:")) %>%
+#   pander(justify = "llrrrrr")
 ```
 
-# Steve's wizardry
+# **Steve's wizardry**
 
-```{r}
-myLmPlot <- function(x){
-  par(mfrow = c(2,2))
-  plot(x)
-  par(mfrow = c(1,1))
-}
-```
-
-We ran an initial model plotting gene-level contributions (i.e. rotations) to PC1 against the two potential predictor variables: `log10(length)` and `gc` content.
-
-```{r}
-geneGCLen %>%
-  cbind(pca$rotation[.$gene_id,]) %>% 
-  as_tibble() %>%
-  lm(PC1 ~ log10(length)*gc, data = .) %T>%
-  myLmPlot() %>%
-  summary() %>%
-  pander()
-```
-
-This model clearly violated the assumption of constant variance meaning the basic assumptions for the linear model were not able to be applied.
-As such, the Box-Cox transformation was applied using an offset of $\gamma = 1$ and with $\lambda = 38$, as determined by fitting the profile likelihood for $\lambda$.
-
-```{r}
-geneGCLen %>%
-  cbind(pca$rotation[.$gene_id,]) %>% 
-  as_tibble() %>%
-  with(
-    boxCox((1 + PC1) ~ log(length)*gc,
-           lambda = seq(0, 50, length = 50)
-           )
-    )
-```
-
-The transformed data was then fit and the assumption of constant variance was able to be applied.
-
-```{r}
-geneGCLen %>%
-  cbind(pca$rotation[.$gene_id,]) %>% 
-  as_tibble() %>%
-  mutate(
-    bcPC1 = bcnPower(PC1, lambda = 38, gamma = 1)
-  ) %>%
-  lm(bcPC1 ~ log10(length)*gc, data = .) %T>%
-  myLmPlot() %>%
-  summary() %>%
-  pander()
-```
-
-Whilst not being simply interpretable, this suggests that both GC content and gene length are contributing to the variability detected along PC1.
+## Initial inspection
 
 ```{r}
 geneGCLen %>%
@@ -741,25 +694,32 @@ geneGCLen %>%
   scale_colour_viridis_c(option = "inferno")
 ```
 
---------------------------------------------------------------------------------
-
-## Current method
+## Bin setup
   
 ```{r}
-nBins <- list(length = 10, gc = 10)
-bin_lm <- geneGCLen %>%
+# Create table breaking GC content and gene length into bins with approximately 
+# equal amounts of genes in each bin, along with their contribution to each 
+# principal component axis.
+nBins <- list(length = 20, gc = 20)
+binTable <- geneGCLen %>%
   cbind(pca$rotation[.$gene_id,]) %>% 
   as_tibble() %>%
   mutate(
     lengthBins = cut(
       log(length), 
-      breaks = nBins$length, 
+      # breaks = nBins$length,
+      breaks = quantile(
+        log(length), seq(0, nBins$length)/nBins$length
+      ),
       labels = paste0("L", seq_len(nBins$length)), 
       include.lowest = TRUE
     ),
     gcBins = cut(
       gc, 
-      breaks = nBins$gc, 
+      # breaks = nBins$gc,
+      breaks = quantile(
+        gc, seq(0, nBins$gc) / nBins$gc
+      ),
       labels = paste0("GC", seq_len(nBins$gc)), 
       include.lowest = TRUE
     ),
@@ -770,123 +730,824 @@ bin_lm <- geneGCLen %>%
   mutate(n = n()) %>%
   ungroup() %>%
   dplyr::filter(n > 1) %>%
+  as_tibble()
+```
+
+```{r}
+# Setup functions to get ranges of bins.
+minLen <- function(x){
+  binTable %>% 
+    dplyr::filter(lengthBins == x) %>%
+    dplyr::select(length) %>% 
+    min()
+}
+maxLen <- function(x){
+  binTable %>% 
+    dplyr::filter(lengthBins == x) %>%
+    dplyr::select(length) %>% 
+    max()
+}
+minGC <- function(x){
+  binTable %>% 
+    dplyr::filter(gcBins == x) %>%
+    dplyr::select(gc) %>% 
+    min()
+}
+maxGC <- function(x){
+  binTable %>% 
+    dplyr::filter(gcBins == x) %>%
+    dplyr::select(gc) %>% 
+    max()
+}
+```
+
+
+```{r}
+# Put ranges of bins in table.
+binRanges <- tibble(
+  Bin = c(1:20),
+  minLen = c(minLen("L1"), minLen("L2"), minLen("L3"), minLen("L4"), 
+             minLen("L5"), minLen("L6"), minLen("L7"), minLen("L8"),
+             minLen("L9"), minLen("L10"), minLen("L11"), minLen("L12"), 
+             minLen("L13"), minLen("L14"), minLen("L15"), minLen("L16"), 
+             minLen("L17"), minLen("L18"), minLen("L19"), minLen("L20")),
+  maxLen = c(maxLen("L1"), maxLen("L2"), maxLen("L3"), maxLen("L4"), 
+             maxLen("L5"), maxLen("L6"), maxLen("L7"), maxLen("L8"),
+             maxLen("L9"), maxLen("L10"), maxLen("L11"), maxLen("L12"), 
+             maxLen("L13"), maxLen("L14"), maxLen("L15"), maxLen("L16"), 
+             maxLen("L17"), maxLen("L18"), maxLen("L19"), maxLen("L20")),
+  minGC = c(minGC("GC1"), minGC("GC2"), minGC("GC3"), minGC("GC4"), 
+            minGC("GC5"), minGC("GC6"), minGC("GC7"), minGC("GC8"),
+            minGC("GC9"), minGC("GC10"), minGC("GC11"), minGC("GC12"), 
+            minGC("GC13"), minGC("GC14"), minGC("GC15"), minGC("GC16"), 
+            minGC("GC17"), minGC("GC18"), minGC("GC19"), minGC("GC20")),
+  maxGC = c(maxGC("GC1"), maxGC("GC2"), maxGC("GC3"), maxGC("GC4"), 
+            maxGC("GC5"), maxGC("GC6"), maxGC("GC7"), maxGC("GC8"),
+            maxGC("GC9"), maxGC("GC10"), maxGC("GC11"), maxGC("GC12"), 
+            maxGC("GC13"), maxGC("GC14"), maxGC("GC15"), maxGC("GC16"), 
+            maxGC("GC17"), maxGC("GC18"), maxGC("GC19"), maxGC("GC20"))
+  ) %>%
+  mutate(
+    minGC = formatC(100*minGC, format = "f", digits = 1),
+    maxGC = formatC(100*maxGC, format = "f", digits = 1),
+    minLen = formatC(minLen / 1000, format = "f", digits = 1),
+    maxLen = formatC(maxLen / 1000, format = "f", digits = 1)
+  ) %>%
+  unite("Length", minLen, maxLen, sep = "-") %>%
+  unite("GC_Content", minGC, maxGC, sep = "-")
+```
+
+```{r}
+binRanges
+```
+
+## PC1
+
+```{r}
+# Fit linear model to explain PC1 by GC content and gene length.
+lm_PC1 <- binTable %>%  
   lm(PC1 ~ 0 + bothBins, data = .)
 ```
 
 ```{r}
-# To use different significance adjustment
-binFDR <- bin_lm %>% 
-  glht() %>% 
-  summary(test = adjusted("fdr"))
+# FDR adjust for multiple testing.
+# Add significance column for filtering insignificant bins.
+binFDR_PC1 <- summary(lm_PC1)$coef %>%
+  as.data.frame() %>% 
+  rownames_to_column("Bin") %>% 
+  as_tibble() %>%
+  mutate(FDR = p.adjust(`Pr(>|t|)`, "fdr")) %>%
+  mutate(Bin = str_remove(Bin, "bothBins")) %>% 
+  separate(Bin, into = c("length", "GC")) %>%
+  dplyr::mutate(
+    sig = FDR < 0.05,
+    p = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(length, GC, sig, FDR, p)
 ```
 
 ```{r}
-# Extract p-values 
-binSig <- binFDR$test$pvalues %>% enframe() %>% 
-  mutate(name = str_remove(name, "bothBins")) %>% 
-  separate(name, into = c("length", "GC")) %>%
-  dplyr::rename(p = value) %>%
-  dplyr::mutate(sig = case_when(
-    between(p, 0, 0.001) ~ 5,
-    between(p, 0.001, 0.01) ~ 4,
-    between(p, 0.01, 0.05) ~ 3,
-    between(p, 0.05, 0.1) ~ 2,
-    between(p, 0.1, 1) ~ 1
-  )) %>%
-  dplyr::select(length, GC, sig)
-```
-
-```{r}
-coef(bin_lm) %>% 
+# Plot gene length bins vs GC contents bins showing contribution to PC1
+# and significance.
+coef(lm_PC1) %>% 
   enframe() %>%
   mutate(name = str_remove(name, "bothBins")) %>% 
   separate(name, into = c("length", "GC")) %>%
-  left_join(binSig) %>%
+  left_join(binFDR_PC1) %>%
+  dplyr::filter(sig) %>%
   mutate(
     length = str_remove(length, "L") %>% as.integer(),
     GC = str_remove(GC, "GC") %>% as.integer()
   ) %>%
   ggplot(aes(length, GC)) +
-  geom_point(aes(colour = value, size = sig)) +
-  scale_size_continuous(labels = c(
-    "0 < p < 0.001",
-    "0.001 < p < 0.01",
-    "0.01 < p < 0.1",
-    "0.5 < p < 0.1",
-    "0.1 < p < 1"
-    )) +
-  scale_x_continuous(breaks = seq_len(nBins$length)) + 
-  scale_y_continuous(breaks = seq_len(nBins$gc)) +
+  geom_point(aes(colour = value, size = -log10(p))) +
+  scale_colour_gradient2(
+    low = "red", mid = "white", high = "blue", midpoint = 0
+  ) +
+  scale_x_continuous(
+    breaks = seq_len(nBins$length),
+    labels = binRanges$Length
+  ) +
+  scale_y_continuous(
+    breaks = seq_len(nBins$gc),
+    labels = binRanges$GC_Content
+  ) +
+  scale_size_continuous(guide = FALSE) +
   labs(
-    x = "Length Bin",
-    y = "GC Content Bin",
+    x = "Gene length (kb)",
+    y = "GC content (%)",
     colour = paste("Contribution", "to PC1", sep = "\n"),
     size = "Significance"
   ) +
+  theme_dark() +
   theme(
-    panel.grid.major = element_blank(), 
-    panel.grid.minor = element_blank()
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(
+      angle = -45, hjust = 0.1, vjust = 0.5
+    )
   )
 ```
 
---------------------------------------------------------------------------------
+## PC2
 
 ```{r}
-# bin_conf <- glht(bin_lm, linfct = mcp(bothBins = "Tukey")) %>%
-#   confint() %>%
-#   .[["confint"]] %>%
-#   as.data.frame() %>%
-#   rownames_to_column("Comparison") %>%
+# Fit linear model to explain PC2 by GC content and gene length.
+lm_PC2 <- binTable %>%  
+  lm(PC2 ~ 0 + bothBins, data = .)
+```
+
+```{r}
+# FDR adjust for multiple testing.
+# Add significance column for filtering insignificant bins.
+binFDR_PC2 <- summary(lm_PC2)$coef %>%
+  as.data.frame() %>% 
+  rownames_to_column("Bin") %>% 
+  as_tibble() %>%
+  mutate(FDR = p.adjust(`Pr(>|t|)`, "fdr")) %>%
+  mutate(Bin = str_remove(Bin, "bothBins")) %>% 
+  separate(Bin, into = c("length", "GC")) %>%
+  dplyr::mutate(
+    sig = FDR < 0.05,
+    p = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(length, GC, sig, FDR, p)
+```
+
+```{r}
+# Plot gene length bins vs GC contents bins showing contribution to PC2
+# and significance.
+coef(lm_PC2) %>% 
+  enframe() %>%
+  mutate(name = str_remove(name, "bothBins")) %>% 
+  separate(name, into = c("length", "GC")) %>%
+  left_join(binFDR_PC2) %>%
+  dplyr::filter(sig) %>%
+  mutate(
+    length = str_remove(length, "L") %>% as.integer(),
+    GC = str_remove(GC, "GC") %>% as.integer()
+  ) %>%
+  ggplot(aes(length, GC)) +
+  geom_point(aes(colour = value, size = -log10(p))) +
+  scale_x_continuous(
+    breaks = seq_len(nBins$length),
+    labels = binRanges$Length
+  ) +
+  scale_y_continuous(
+    breaks = seq_len(nBins$gc),
+    labels = binRanges$GC_Content
+  ) +
+  scale_size_continuous(guide = FALSE) +
+  labs(
+    x = "Gene Length (kb)",
+    y = "GC Content (%)",
+    colour = paste("Contribution", "to PC2", sep = "\n"),
+    size = "Significance"
+  ) +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(
+      angle = -45, hjust = 0.1, vjust = 0.5
+    )
+  )
+```
+
+## Old POA
+
+```{r}
+# myLmPlot <- function(x){
+#   par(mfrow = c(2,2))
+#   plot(x)
+#   par(mfrow = c(1,1))
+# }
+```
+
+We ran an initial model plotting gene-level contributions (i.e. rotations) to PC1 against the two potential predictor variables: `log10(length)` and `gc` content.
+
+```{r}
+# geneGCLen %>%
+#   cbind(pca$rotation[.$gene_id,]) %>% 
 #   as_tibble() %>%
-#   mutate(Sig = case_when(
-#     sign(lwr) == sign(upr) ~ sign(lwr),
-#     sign(lwr) != sign(upr) ~ 0
-#   ))
+#   lm(PC1 ~ log10(length)*gc, data = .) %T>%
+#   myLmPlot() %>%
+#   summary() %>%
+#   pander()
 ```
 
-```{r}
-# bin_conf %>%
-#   ggplot(aes(Estimate, Comparison, colour = Sig)) +
-#   geom_point() +
-#   geom_errorbarh(aes(xmin = lwr, xmax = upr)) +
-#   geom_vline(xintercept = 0) +
-#   scale_colour_gradient2(low = "red", mid = "black", high = "red") +
-#   theme(
-#     axis.text.y = element_text(size = 5)
-#   )
-```
+This model clearly violated the assumption of constant variance meaning the basic assumptions for the linear model were not able to be applied.
+As such, the Box-Cox transformation was applied using an offset of $\gamma = 1$ and with $\lambda = 38$, as determined by fitting the profile likelihood for $\lambda$.
 
 ```{r}
-# list(
-#   bin_conf %>% 
-#     separate(Comparison, c("x", "y"), " - "), 
-#   bin_conf %>% 
-#     separate(Comparison, c("y", "x"), " - ") %>% 
-#     mutate(Sig = -1*Sig)
-# ) %>%
-#   bind_rows() %>%
+# geneGCLen %>%
+#   cbind(pca$rotation[.$gene_id,]) %>% 
+#   as_tibble() %>%
+#   with(
+#     boxCox((1 + PC1) ~ log(length)*gc,
+#            lambda = seq(0, 50, length = 50)
+#            )
+#     )
+```
+
+The transformed data was then fit and the assumption of constant variance was able to be applied.
+
+```{r}
+# geneGCLen %>%
+#   cbind(pca$rotation[.$gene_id,]) %>% 
+#   as_tibble() %>%
 #   mutate(
-#     L1x = grepl("L1", x),
-#     L2x = grepl("L2", x),
-#     L3x = grepl("L3", x),
-#     L4x = grepl("L4", x),
-#     L5x = grepl("L5", x)
+#     bcPC1 = bcnPower(PC1, lambda = 38, gamma = 1)
 #   ) %>%
-#   ggplot(aes(x, y, fill = Sig)) +
-#   scale_fill_gradient2(low = "darkred", mid = "white", high = "darkgreen") +
-#   geom_raster() + 
-#   xlab("") +
-#   ylab("") +
-#   facet_wrap(
-#     ~L5x + L4x + L3x + L2x + L1x, 
-#     scales = "free"
-#   ) +
-#   theme(
-#     strip.background = element_blank(),
-#     strip.text.x = element_blank(),
-#     strip.text.y = element_blank(),
-#     axis.text.x = element_text(angle = -55, hjust = -0.1),
-#     panel.grid.major = element_blank(), 
-#     panel.grid.minor = element_blank()
-#   )
+#   lm(bcPC1 ~ log10(length)*gc, data = .) %T>%
+#   myLmPlot() %>%
+#   summary() %>%
+#   pander()
 ```
+
+Whilst not being simply interpretable, this suggests that both GC content and gene length are contributing to the variability detected along PC1.
+
+```{r}
+# geneGCLen %>%
+#   cbind(pca$rotation[.$gene_id,]) %>% 
+#   as_tibble() %>%
+#   ggplot(aes(length, PC1, colour = gc)) +
+#   geom_point() +
+#   scale_x_log10(labels = comma) +
+#   scale_colour_viridis_c(option = "inferno")
+```
+
+# **RUVSeq**
+
+## Negative controls
+
+```{r}
+# Extract subset of low ranked genes from DE analysis to act as negative 
+# controls for RUVg procedure
+negControl <- topTablePC1 %>% 
+  dplyr::arrange(desc(P.Value)) %>%
+  .[1:10000,] %>%
+  .$gene_id
+```
+
+## k = 1
+
+```{r}
+# Run RUVSeq for k = 1
+RUVg_k1 <- RUVg(dgeFilt$counts, negControl, 1)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k1 <- dgeFilt
+# Replace with results
+dgeFalse_k1$counts <- RUVg_k1$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+pcaRUVg_k1 <- dgeFalse_k1 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k1)$importance %>% pander()
+# Plot PCA
+pcaRUVg_k1$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k1$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider", title = "k = 1") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k1)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k1)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## k = 2
+
+```{r}
+# Run RUVSeq for k = 2
+RUVg_k2 <- RUVg(dgeFilt$counts, negControl, 2)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k2 <- dgeFilt
+# Replace with results
+dgeFalse_k2$counts <- RUVg_k2$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+dgeFalse_k2 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k2)$importance %>% pander()
+# Plot PCA
+pcak2 <- pcaRUVg_k2$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k2$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider", title = "k = 2") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k2)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k2)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## k = 3
+
+```{r}
+# Run RUVSeq for k = 3
+RUVg_k3 <- RUVg(dgeFilt$counts, negControl, 3)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k3 <- dgeFilt
+# Replace with results
+dgeFalse_k3$counts <- RUVg_k3$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+pcaRUVg_k3 <- dgeFalse_k3 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k3)$importance %>% pander()
+# Plot PCA
+pcaRUVg_k3$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k3$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider", title = "k = 3") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k3)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k3)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## k = 4
+
+```{r}
+# Run RUVSeq for k = 4
+RUVg_k4 <- RUVg(dgeFilt$counts, negControl, 4)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k4 <- dgeFilt
+# Replace with results
+dgeFalse_k4$counts <- RUVg_k4$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+pcaRUVg_k4 <- dgeFalse_k4 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k4)$importance %>% pander()
+# Plot PCA
+pcaRUVg_k4$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k4$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider", title = "k = 4") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k4)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k4)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## k = 5
+
+```{r}
+# Run RUVSeq for k = 5
+RUVg_k5 <- RUVg(dgeFilt$counts, negControl, 5)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k5 <- dgeFilt
+# Replace with results
+dgeFalse_k5$counts <- RUVg_k5$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+pcaRUVg_k5 <- dgeFalse_k5 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k5)$importance %>% pander()
+# Plot PCA
+pcaRUVg_k5$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k5$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5, alpha = 0.8) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k5)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k5)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## k = 6
+
+```{r}
+# Run RUVSeq for k = 6
+RUVg_k6 <- RUVg(dgeFilt$counts, negControl, 6)
+```
+
+### PCA
+
+```{r}
+# Create copy of dgeFilt as framework to replace RUVSeq results into
+dgeFalse_k6 <- dgeFilt
+# Replace with results
+dgeFalse_k6$counts <- RUVg_k6$normalizedCounts
+```
+
+```{r}
+# Run PCA function
+pcaRUVg_k6 <- dgeFalse_k6 %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRUVg_k6)$importance %>% pander()
+# Plot PCA
+pcaRUVg_k6$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeFalse_k6$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider", title = "k = 6") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k6)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k6)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+## Viewports
+
+```{r include=FALSE, eval=FALSE}
+# Setup PCA objects
+pcak1 <- pcaRUVg_k1$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k1$samples) %>%
+  left_join(metaData) %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  # geom_text_repel(show.legend = FALSE) +
+  labs(colour = "Family", shape = "Provider", title = "k = 1") +
+  xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k1)$importance[2, "PC1"]), ")")) +
+  ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k1)$importance[2, "PC2"]), ")")) +
+  theme_bw() +
+  theme(legend.position = "none")
+pcak2 <- pcaRUVg_k2$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k2$samples) %>%
+  left_join(metaData) %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  # geom_text_repel(show.legend = FALSE) +
+  labs(colour = "Family", shape = "Provider", title = "k = 2") +
+  xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k2)$importance[2, "PC1"]), ")")) +
+  ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k2)$importance[2, "PC2"]), ")")) +
+  theme_bw() +
+  theme(legend.position = "none")
+pcak3 <- pcaRUVg_k3$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k3$samples) %>%
+  left_join(metaData) %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  # geom_text_repel(show.legend = FALSE) +
+  labs(colour = "Family", shape = "Provider", title = "k = 3") +
+  xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k3)$importance[2, "PC1"]), ")")) +
+  ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k3)$importance[2, "PC2"]), ")")) +
+  theme_bw() +
+  theme(legend.position = "none")
+pcak4 <- pcaRUVg_k4$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k4$samples) %>%
+  left_join(metaData) %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  # geom_text_repel(show.legend = FALSE) +
+  labs(colour = "Family", shape = "Provider", title = "k = 4") +
+  xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k4)$importance[2, "PC1"]), ")")) +
+  ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k4)$importance[2, "PC2"]), ")")) +
+  theme_bw() +
+  theme(legend.position = "none")
+pcak5 <- pcaRUVg_k5$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k5$samples) %>%
+  left_join(metaData) %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  # geom_text_repel(show.legend = FALSE) +
+  labs(colour = "Family", shape = "Provider", title = "k = 5") +
+  xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k5)$importance[2, "PC1"]), ")")) +
+  ylab(label = paste0("PC2", " (", percent(summary(pcaRUVg_k5)$importance[2, "PC2"]), ")")) +
+  theme_bw()
+```
+
+```{r include=FALSE, eval=FALSE}
+# Set up viewports
+kvp1 <- viewport(x = 0.25, y = 0.166, width = 0.5, height = 0.333)
+kvp2 <- viewport(x = 0.75, y = 0.166, width = 0.5, height = 0.333)
+kvp3 <- viewport(x = 0.25, y = 0.5, width = 0.5, height = 0.333)
+kvp4 <- viewport(x = 0.75, y = 0.5, width = 0.5, height = 0.333)
+kvp5 <- viewport(x = 0.25, y = 0.833, width = 0.5, height = 0.333)
+# Plot PCA plots in grid
+if (interactive()) grid::grid.newpage()
+print(pcak1, vp = kvp1)
+print(pcak2, vp = kvp2)
+print(pcak3, vp = kvp3)
+print(pcak4, vp = kvp4)
+print(pcak5, vp = kvp5)
+```
+
+## Animation
+
+```{r}
+anim0 <- pca$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFilt$samples) %>%
+  left_join(metaData) %>%
+  mutate(k = "before RUVSeq")
+anim1 <- pcaRUVg_k1$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k1$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 1"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
+anim2 <- pcaRUVg_k2$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k2$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 2"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
+anim3 <- pcaRUVg_k3$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k3$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 3"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
+anim4 <- pcaRUVg_k4$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k4$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 4"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
+anim5 <- pcaRUVg_k5$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k5$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 5"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
+```
+
+```{r}
+anim <- anim0 %>%
+  full_join(anim1) %>%
+  full_join(anim2) %>%
+  full_join(anim3) %>%
+  full_join(anim4) %>%
+  full_join(anim5) 
+```
+
+```{r}
+anim %>%
+  ggplot(
+    aes_string(
+      "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+    )
+  ) +
+  geom_point(size = 3, stroke = 0.5) +
+  labs(colour = "Family", shape = "Provider") +
+  xlab(label = "PC1") +
+  ylab(label = "PC2") +
+  coord_cartesian(
+    xlim = c(-150, 150),
+    ylim = c(-150, 150)
+    ) +
+  transition_states(
+    k,
+    transition_length = 2,
+    state_length = 3
+  ) +
+  ease_aes('cubic-in-out') +
+  ggtitle("Now showing {closest_state}")
+```
+
+# **Gene removal**
+
+Fitting gene length and GC content as predictors of PC1 showed that genes of length bins 0.1-1.0kb and 7.6-98.6kb as well as genes with GC content of 49.8-67.3%  were the biggest contributors. Therefore, it should be tested if pulling these genes out restores the PCA to represent more what is expected due to biological variation.
+
+```{r}
+geneFilter <- geneGCLen %>%
+  mutate(
+    minLenTest = length > 1000,
+    maxLenTest = length < 7600,
+    gcTest = gc < 0.498
+  ) %>%
+  dplyr::filter(minLenTest, maxLenTest)
+```
+
+```{r}
+# Subset filtered dgeList
+dgeRemoved <- dgeFilt[geneFilter$gene_id,]
+```
+
+## PCA
+
+```{r}
+# Run PCA function
+pcaRemoved <- dgeRemoved %>%
+  cpm(log = TRUE) %>%
+  t() %>%
+  prcomp()
+# Quick inspection to check whether first two PCA components capture most of the variability
+summary(pcaRemoved)$importance %>% pander()
+# Plot PCA
+pcaRemoved$x %>%
+    as.data.frame() %>%
+    rownames_to_column("sample") %>%
+    as_tibble() %>%
+    dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+    left_join(dgeRemoved$samples) %>%
+    left_join(metaData) %>%
+    ggplot(
+      aes_string(
+        "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
+      )
+    ) +
+    geom_point(size = 3, stroke = 0.5) +
+    # geom_text_repel(show.legend = FALSE) +
+    labs(colour = "Family", shape = "Provider") +
+    xlab(label = paste0("PC1", " (", percent(summary(pcaRemoved)$importance[2, "PC1"]), ")")) +
+    ylab(label = paste0("PC2", " (", percent(summary(pcaRemoved)$importance[2, "PC2"]), ")")) +
+    theme_bw()
+```
+
+This was also tried with gc < 0.44, but very little difference between the two PCA's was observed.
+
