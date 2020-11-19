@@ -583,13 +583,15 @@ var7 <- famVar("2019SORL1")
 
 ```{r}
 # Plot boxplot
-var1 %>% 
+famBoxPlot <- var1 %>% 
   full_join(var2) %>%
   full_join(var3) %>%
   full_join(var4) %>%
   full_join(var5) %>%
   full_join(var6) %>%
-  full_join(var7) %>%
+  full_join(var7)
+famBoxPlot$group <- factor(famBoxPlot$group, levels = c("2016Q96K97", "2016K97Gfs", "2016PSEN2", "2017Q96K97", "2018PSEN2", "2019Q96K97", "2019SORL1"))
+famBoxPlot %>%
   ggplot(aes(group, value, fill = group)) +
   geom_boxplot(outlier.shape = NA) +
   labs(x = "Family", y = "Gene level variance of counts", fill = "Provider") +
@@ -1070,14 +1072,14 @@ dgeFalse_k2$counts <- RUVg_k2$normalizedCounts
 
 ```{r}
 # Run PCA function
-dgeFalse_k2 %>%
+pcaRUVg_k2 <- dgeFalse_k2 %>%
   cpm(log = TRUE) %>%
   t() %>%
   prcomp()
 # Quick inspection to check whether first two PCA components capture most of the variability
 summary(pcaRUVg_k2)$importance %>% pander()
 # Plot PCA
-pcak2 <- pcaRUVg_k2$x %>%
+pcaRUVg_k2$x %>%
     as.data.frame() %>%
     rownames_to_column("sample") %>%
     as_tibble() %>%
@@ -1224,7 +1226,7 @@ pcaRUVg_k5$x %>%
         "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
       )
     ) +
-    geom_point(size = 3, stroke = 0.5, alpha = 0.8) +
+    geom_point(size = 3, stroke = 0.5) +
     # geom_text_repel(show.legend = FALSE) +
     labs(colour = "Family", shape = "Provider") +
     xlab(label = paste0("PC1", " (", percent(summary(pcaRUVg_k5)$importance[2, "PC1"]), ")")) +
@@ -1464,25 +1466,37 @@ anim5 <- pcaRUVg_k5$x %>%
     # PC1 = -PC1,
     # PC2 = -PC2
     )
+anim6 <- pcaRUVg_k6$x %>%
+  as.data.frame() %>%
+  rownames_to_column("sample") %>%
+  as_tibble() %>%
+  dplyr::select(sample, one_of(c("PC1", "PC2"))) %>%
+  left_join(dgeFalse_k6$samples) %>%
+  left_join(metaData) %>%
+  mutate(
+    k = "k = 6"
+    # PC1 = -PC1,
+    # PC2 = -PC2
+    )
 ```
 
 ```{r}
-anim <- anim0 %>%
-  full_join(anim1) %>%
+anim <- anim1 %>%
   full_join(anim2) %>%
   full_join(anim3) %>%
   full_join(anim4) %>%
-  full_join(anim5) 
+  full_join(anim5) %>%
+  full_join(anim6)
 ```
 
 ```{r}
-anim %>%
+animation <- anim %>%
   ggplot(
     aes_string(
       "PC1", "PC2", colour = "group", shape = "provider", label = "sex"
     )
   ) +
-  geom_point(size = 3, stroke = 0.5) +
+  geom_point(size = 6, stroke = 1, alpha = 0.8) +
   labs(colour = "Family", shape = "Provider") +
   xlab(label = "PC1") +
   ylab(label = "PC2") +
@@ -1496,7 +1510,15 @@ anim %>%
     state_length = 3
   ) +
   ease_aes('cubic-in-out') +
-  ggtitle("Now showing {closest_state}")
+  ggtitle("Now showing {closest_state}") +
+  theme(plot.title = element_text(size = 40, face = "bold"),
+        # legend.key.height = unit(4, units = "cm"),
+        # legend.key.width = unit(2, units = "cm")
+        legend.title = element_text(size = 30),
+        legend.text = element_text(size = 20),
+        axis.title = element_text(size = 20))
+# animate(animation, height = 800, width = 1000, rewind = TRUE, nframes = 200)
+# anim_save("../files/animation.gif")
 ```
 
 # **Gene removal**
